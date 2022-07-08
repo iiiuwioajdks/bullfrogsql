@@ -38,11 +38,12 @@ var (
 
 const (
 	idLen     = 8
-	prefixLen = 1 + idLen /*tableID*/ + 2
+	prefixLen = 1 + idLen /*tableID*/ + 2 // 1是t，8是tableId，2是_i or _r
 	// RecordRowKeyLen is public for calculating average row size.
 	RecordRowKeyLen       = prefixLen + idLen /*handle*/
 	tablePrefixLength     = 1
 	recordPrefixSepLength = 2
+	indexPrefixSepLength  = 2
 )
 
 // TableSplitKeyLen is the length of key 't{table_id}' which is used for table split.
@@ -98,6 +99,30 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+	// decode the format : tid_rhandle
+	// check valid
+	if len(key) != RecordRowKeyLen {
+		return 0, 0, errInvalidRecordKey.GenWithStack("the key len invalid : %d", len(key))
+	}
+	// decode
+	t := key.HasPrefix(tablePrefix)
+	if !t {
+		return 0, 0, errInvalidRecordKey.GenWithStack("the key haven't prefix t")
+	}
+	key = key[tablePrefixLength:]
+	key, tableID, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, err
+	}
+	r := key.HasPrefix(recordPrefixSep)
+	if !r {
+		return 0, 0, errInvalidRecordKey.GenWithStack("the key haven't prefix _r")
+	}
+	key = key[recordPrefixSepLength:]
+	key, handle, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, err
+	}
 	return
 }
 
@@ -148,6 +173,30 @@ func DecodeIndexKeyPrefix(key kv.Key) (tableID int64, indexID int64, indexValues
 	 *   5. understanding the coding rules is a prerequisite for implementing this function,
 	 *      you can learn it in the projection 1-2 course documentation.
 	 */
+	// decode the format : tid_iidval
+	if len(key) < prefixLen+idLen {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("the key len invalid : %d", len(key))
+	}
+	// decode
+	t := key.HasPrefix(tablePrefix)
+	if !t {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("the key haven't prefix t")
+	}
+	key = key[tablePrefixLength:]
+	key, tableID, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	i := key.HasPrefix(indexPrefixSep)
+	if !i {
+		return 0, 0, nil, errInvalidRecordKey.GenWithStack("the key haven't prefix _i")
+	}
+	key = key[indexPrefixSepLength:]
+	key, indexID, err = codec.DecodeInt(key)
+	if err != nil {
+		return 0, 0, nil, err
+	}
+	indexValues = key
 	return tableID, indexID, indexValues, nil
 }
 
