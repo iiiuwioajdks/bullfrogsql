@@ -3819,6 +3819,25 @@ JoinTable:
          * }
          *
 	 */
+	 // CROSS JOIN连接用于生成两张表的笛卡尔集 : join , inner join
+	 // $1 JOIN $3 ON $5
+	 // $1 对应第一个 TableRef，$2对应CrossOpt ...
+|	TableRef CrossOpt TableRef "ON" Expression
+	{
+		on := &ast.OnCondition{Expr: $5}
+		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $3.(ast.ResultSetNode), Tp: ast.CrossJoin, On: on}
+	}
+	// $1 LEFT OUTER JOIN $5 ON $7 ： 左外连接
+	// outer 与 inner的区别就是左表中的数据一定给全，无论是否能在右表中找到匹配的行（如果找不到右表数据就为NULL）
+	// 右外连接则是相反
+|	TableRef JoinType OuterOpt "JOIN" TableRef "ON" Expression
+	{
+		on := &ast.OnCondition{Expr: $7}
+		$$ = &ast.Join{Left: $1.(ast.ResultSetNode), Right: $5.(ast.ResultSetNode), Tp: $2.(ast.JoinType), On: on}
+	}
+	// 然后还有很多join类型，比如Natural Join就是自然连接，不需要on但是需要两边的列名是一样的，自动识别相同列的相等连接
+	// 比如：TableRef "NATURAL" "JOIN" TableRef
+	// 还可以使用 USING ('x') , x是某个列，要求必须是等值连接，也就是某一列，等于 on a.x = b.x
 
 JoinType:
 	"LEFT"

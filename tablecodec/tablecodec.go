@@ -101,7 +101,7 @@ func DecodeRecordKey(key kv.Key) (tableID int64, handle int64, err error) {
 	 */
 	// decode the format : tid_rhandle
 	// check valid
-	if len(key) != RecordRowKeyLen {
+	if len(key) <= prefixLen {
 		return 0, 0, errInvalidRecordKey.GenWithStack("the key len invalid : %d", len(key))
 	}
 	// decode
@@ -208,7 +208,9 @@ func DecodeIndexKey(key kv.Key) (tableID int64, indexID int64, indexValues []str
 	if err != nil {
 		return 0, 0, nil, errors.Trace(err)
 	}
+	// 将剩下的 key 解析成该行的每一列的值，存在indexValues中
 	for len(key) > 0 {
+		// decodes on datum from a byte slice generated with EncodeKey or EncodeValue.
 		remain, d, e := codec.DecodeOne(key)
 		if e != nil {
 			return 0, 0, nil, errInvalidIndexKey.GenWithStack("invalid index key - %q %v", k, e)
