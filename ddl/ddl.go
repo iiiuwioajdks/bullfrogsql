@@ -15,8 +15,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package ddl DDL(Data Definition Language) 数据模式定义语言，是用来描述数据表实体的语言。
+// 简单来说就是数据库中对库/表/列/索引进行创建/删除/变更操作的部分逻辑实现。
 package ddl
 
+//包含 DDL 接口定义和其实现。
 import (
 	"context"
 	"fmt"
@@ -293,6 +296,7 @@ func (d *ddl) start(ctx context.Context, ctxPool *pools.ResourcePool) {
 	d.sessPool = newSessionPool(ctxPool)
 	d.workers[generalWorker] = newWorker(generalWorker, d.sessPool)
 	d.workers[addIdxWorker] = newWorker(addIdxWorker, d.sessPool)
+	// 给每个worker启一个 goroutine 去handle ddl job
 	for _, worker := range d.workers {
 		worker.wg.Add(1)
 		w := worker
@@ -420,6 +424,7 @@ func (d *ddl) asyncNotifyWorker(jobTp model.ActionType) {
 
 func (d *ddl) doDDLJob(ctx sessionctx.Context, job *model.Job) error {
 	// Get a global job ID and put the DDL job in the queue.
+	// 仅仅加入队列，然后由 ddl_worker.go/start 来接收，去进行异步变更
 	err := d.addDDLJob(ctx, job)
 	if err != nil {
 		return errors.Trace(err)
@@ -427,6 +432,7 @@ func (d *ddl) doDDLJob(ctx sessionctx.Context, job *model.Job) error {
 	ctx.GetSessionVars().StmtCtx.IsDDLJobInQueue = true
 
 	// Notice worker that we push a new job and wait the job done.
+	// 这个就是对 ddl_worker.go/start 的channel 里面的唤醒
 	d.asyncNotifyWorker(job.Type)
 	logutil.BgLogger().Info("[ddl] start DDL job", zap.String("job", job.String()), zap.String("query", job.Query))
 
@@ -441,11 +447,12 @@ func (d *ddl) doDDLJob(ctx sessionctx.Context, job *model.Job) error {
 		ticker.Stop()
 	}()
 	for {
+		// 每隔一段时间就会tick一次，然后来检查 job 是否已经完成
 		select {
 		case <-d.ddlJobDoneCh:
 		case <-ticker.C:
 		}
-
+		// 检测到 history DDL job 队列中有对应的 job 后就返回
 		historyJob, err = d.getHistoryDDLJob(jobID)
 		if err != nil {
 			logutil.BgLogger().Error("[ddl] get history DDL job failed, check again", zap.Error(err))

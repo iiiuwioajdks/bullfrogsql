@@ -17,6 +17,8 @@
 
 package ddl
 
+// 提供 create , drop , alter , truncate , rename 等操作的 API，供 Executor 调用。
+// 主要功能是封装 DDL 操作的 job 然后存入 DDL job queue，等待 job 执行完成后返回。
 import (
 	"fmt"
 	"strings"

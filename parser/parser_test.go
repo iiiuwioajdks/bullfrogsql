@@ -281,6 +281,7 @@ func (s *testParserSuite) RunTest(c *C, table []testCase) {
 			continue
 		}
 		c.Assert(err, IsNil, comment)
+		//fmt.Println(t.src, comment, err)
 	}
 }
 

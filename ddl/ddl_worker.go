@@ -13,6 +13,8 @@
 
 package ddl
 
+// DDL worker 的实现。owner 节点的 worker 从 job queue 中取 job，然后执行，
+// 执行完成后将 job 存入 job history queue 中。
 import (
 	"context"
 	"fmt"
@@ -185,6 +187,7 @@ func (d *ddl) addDDLJob(ctx sessionctx.Context, job *model.Job) error {
 	err := kv.RunInNewTxn(d.store, true, func(txn kv.Transaction) error {
 		t := newMetaWithQueueTp(txn, job.Type.String())
 		var err error
+		// 首先获取一个 global id
 		job.ID, err = t.GenGlobalID()
 		if err != nil {
 			return errors.Trace(err)
@@ -193,6 +196,7 @@ func (d *ddl) addDDLJob(ctx sessionctx.Context, job *model.Job) error {
 		if err = buildJobDependence(t, job); err != nil {
 			return errors.Trace(err)
 		}
+		// push to queue
 		err = t.EnQueueDDLJob(job)
 
 		return errors.Trace(err)
@@ -312,6 +316,7 @@ func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 		)
 		waitTime := 2 * d.lease
 		err := kv.RunInNewTxn(d.store, false, func(txn kv.Transaction) error {
+			// 检查是否是 owner
 			// We are not owner, return and retry checking later.
 			if !d.isOwner() {
 				return nil
@@ -349,6 +354,7 @@ func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 			// If running job meets error, we will save this error in job Error
 			// and retry later if the job is not cancelled.
 			tidbutil.WithRecovery(func() {
+				// exec job
 				schemaVer, runJobErr = w.runDDLJob(d, t, job)
 			}, func(r interface{}) {
 				if r != nil {
@@ -392,6 +398,7 @@ func (w *worker) handleDDLJobQueue(d *ddlCtx) error {
 		// If the job is done or still running or rolling back, we will wait 2 * lease time to guarantee other servers to update
 		// the newest schema.
 		w.waitSchemaChanged(nil, d, waitTime, schemaVer, job)
+		// 发送回 ddl.go/doDDLJob 的 ddlJobDoneCh
 		if job.IsSynced() || job.IsCancelled() {
 			asyncNotify(d.ddlJobDoneCh)
 		}
@@ -440,7 +447,7 @@ func (w *worker) runDDLJob(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, 
 	if !job.IsRollingback() && !job.IsCancelling() {
 		job.State = model.JobStateRunning
 	}
-
+	// 根据 job 的类型，然后调用对应的执行函数
 	switch job.Type {
 	case model.ActionCreateSchema:
 		ver, err = onCreateSchema(d, t, job)

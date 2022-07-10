@@ -13,6 +13,8 @@
 
 package util
 
+// 负责同步 ddl worker 的 owner 和 follower 间的 schema version。
+// 每次 DDL 状态变更后 schema version ID 都会加 1。
 import (
 	"context"
 	"fmt"

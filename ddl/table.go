@@ -43,7 +43,7 @@ func onCreateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error)
 		job.State = model.JobStateCancelled
 		return ver, errors.Trace(err)
 	}
-
+	// some check
 	tbInfo.State = model.StateNone
 	err := checkTableNotExists(d, t, schemaID, tbInfo.Name.L)
 	if err != nil {
@@ -57,7 +57,7 @@ func onCreateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error)
 	if err != nil {
 		return ver, errors.Trace(err)
 	}
-
+	// create table or nothing
 	switch tbInfo.State {
 	case model.StateNone:
 		// none -> public
@@ -68,6 +68,7 @@ func onCreateTable(d *ddlCtx, t *meta.Meta, job *model.Job) (ver int64, _ error)
 			return ver, errors.Trace(err)
 		}
 		// Finish this job.
+		// 将 job 从 DDL job 队列中移除，然后加入 history ddl job 队列中去
 		job.FinishTableJob(model.JobStateDone, model.StatePublic, ver, tbInfo)
 		return ver, nil
 	default:
@@ -376,6 +377,17 @@ func updateVersionAndTableInfoWithCheck(t *meta.Meta, job *model.Job, tblInfo *m
 func updateVersionAndTableInfo(t *meta.Meta, job *model.Job, tblInfo *model.TableInfo, shouldUpdateVer bool) (
 	ver int64, err error) {
 	// TODO complete this function.
-
-	return ver, errors.Trace(err)
+	if shouldUpdateVer {
+		ver, err = updateSchemaVersion(t, job)
+		if err != nil {
+			return 0, err
+		}
+	}
+	// StatePublic means this schema element is ok for all write and read operations.
+	// 滿足 public 説明异步变更处于一个 结束/开始 状态，这时候是安全的，可以自由更新
+	if tblInfo.State == model.StatePublic {
+		tblInfo.UpdateTS = t.StartTS
+	}
+	err = t.UpdateTable(job.SchemaID, tblInfo)
+	return ver, err
 }

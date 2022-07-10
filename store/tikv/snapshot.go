@@ -147,7 +147,7 @@ func (s *tikvSnapshot) get(bo *Backoffer, k kv.Key) ([]byte, error) {
 			//   1. The transaction is during commit, wait for a while and retry.
 			//   2. The transaction is dead with some locks left, resolve it.
 			// YOUR CODE HERE (proj6).
-			panic("YOUR CODE HERE")
+			//panic("YOUR CODE HERE")
 			continue
 
 		}
