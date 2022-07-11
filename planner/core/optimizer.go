@@ -74,14 +74,18 @@ func BuildLogicalPlan(ctx context.Context, sctx sessionctx.Context, node ast.Nod
 
 // DoOptimize optimizes a logical plan to a physical plan.
 func DoOptimize(ctx context.Context, flag uint64, logic LogicalPlan) (PhysicalPlan, error) {
+	// 逻辑优化主要是基于规则的优化，简称 RBO（rule based optimization）
 	logic, err := logicalOptimize(ctx, flag, logic)
 	if err != nil {
 		return nil, err
 	}
+	// 物理优化会为逻辑查询计划中的算子选择某个具体的实现，
+	// 需要用到一些统计信息，决定哪一种方式代价最低，所以是基于代价的优化 CBO（cost based optimization）
 	physical, err := physicalOptimize(logic)
 	if err != nil {
 		return nil, err
 	}
+	// postOptimize 实际上是在一些优化之后对执行计划的一些调整，例如去掉多余的 projection 算子
 	finalPlan := postOptimize(physical)
 	return finalPlan, nil
 }
@@ -92,8 +96,22 @@ func postOptimize(plan PhysicalPlan) PhysicalPlan {
 	return plan
 }
 
+/*
+算子：
+DataSource 这个就是数据源，也就是表，select * from t里面的 t。
+
+Selection 选择，例如 select xxx from t where xx = 5里面的 where 过滤条件。
+
+Projection 投影， select c from t里面的取 c 列是投影操作。
+
+Join 连接， select xx from t1, t2 where t1.c = t2.c就是把 t1 t2 两个表做 Join。
+
+逻辑优化规则：
+列裁剪 columnPruner ：列裁剪的思想是这样的：对于用不上的列，没有必要读取它们的数据，无谓的浪费 IO 资源。
+*/
 func logicalOptimize(ctx context.Context, flag uint64, logic LogicalPlan) (LogicalPlan, error) {
 	var err error
+	// 依次遍历优化规则列表，并对当前的执行计划树尝试优化
 	for i, rule := range optRuleList {
 		// The order of flags is same as the order of optRule in the list.
 		// We use a bitmask to record which opt rules should be used. If the i-th bit is 1, it means we should

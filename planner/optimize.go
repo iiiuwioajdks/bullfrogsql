@@ -33,6 +33,7 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 	sctx.GetSessionVars().PlanID = 0
 	sctx.GetSessionVars().PlanColumnID = 0
 	builder := plannercore.NewPlanBuilder(sctx, is)
+	// 将 AST 转为 plan格式， p 就是 plan
 	p, err := builder.Build(ctx, node)
 	if err != nil {
 		return nil, nil, err
@@ -47,10 +48,12 @@ func Optimize(ctx context.Context, sctx sessionctx.Context, node ast.Node, is in
 	}
 
 	// Handle the logical plan statement, use cascades planner if enabled.
+	// Cascades
 	if sctx.GetSessionVars().EnableCascadesPlanner {
 		finalPlan, err := cascades.DefaultOptimizer.FindBestPlan(sctx, logic)
 		return finalPlan, names, err
 	}
+	// System R
 	finalPlan, err := plannercore.DoOptimize(ctx, builder.GetOptFlag(), logic)
 	return finalPlan, names, err
 }

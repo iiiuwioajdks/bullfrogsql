@@ -14,7 +14,6 @@ package core
 
 import (
 	"context"
-
 	"github.com/pingcap/tidb/expression"
 	"github.com/pingcap/tidb/parser/ast"
 	"github.com/pingcap/tidb/parser/mysql"
@@ -366,7 +365,39 @@ func (p *LogicalProjection) PredicatePushDown(predicates []expression.Expression
 // Hints:
 //   1. predicates need to be discussed in two types: expression.Constant and expression.ScalarFunction
 func (la *LogicalAggregation) PredicatePushDown(predicates []expression.Expression) (ret []expression.Expression, retPlan LogicalPlan) {
-	return predicates, la
+	expres := make([]expression.Expression, 0)
+	// describes the aggregation function signatures
+	for _, aggFunc := range la.AggFuncs {
+		expres = append(expres, aggFunc.Args[0])
+	}
+	var condsToPush []expression.Expression
+	groupByCols := expression.NewSchema(la.GetGroupByCols()...)
+	for _, e := range predicates {
+		// discussed in two types : Constant and ScalarFunction
+		switch e.(type) {
+		case *expression.Constant:
+			// 对于常数，比如 1=0， 这种应该在保留的同时下推
+			ret = append(ret, e)
+			condsToPush = append(condsToPush, e)
+		case *expression.ScalarFunction:
+			columns := expression.ExtractColumns(e)
+			ok := true
+			for _, column := range columns {
+				if !groupByCols.Contains(column) {
+					ok = false
+					break
+				}
+			}
+			if ok {
+				newFunc := expression.ColumnSubstitute(e, la.schema, expres)
+				condsToPush = append(condsToPush, newFunc)
+			} else {
+				ret = append(ret, e)
+			}
+		}
+	}
+	la.baseLogicalPlan.PredicatePushDown(condsToPush)
+	return ret, la
 }
 
 // PredicatePushDown implements LogicalPlan PredicatePushDown interface.

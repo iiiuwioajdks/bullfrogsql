@@ -16,6 +16,7 @@ package core
 import (
 	"context"
 	"fmt"
+	"github.com/pingcap/tidb/util/logutil"
 	"strings"
 	"testing"
 
@@ -62,9 +63,12 @@ func (s *testPlanSuite) TearDownSuite(c *C) {
 }
 
 func (s *testPlanSuite) TestPredicatePushDown(c *C) {
+	logutil.SetLevel("error")
 	defer testleak.AfterTest(c)()
 	var input, output []string
 	s.testData.GetTestCases(c, &input, &output)
+	//fmt.Println("input:", len(input))
+	//fmt.Println("output:", len(output))
 	ctx := context.Background()
 	for ith, ca := range input {
 		comment := Commentf("for %s", ca)
