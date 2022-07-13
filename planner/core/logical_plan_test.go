@@ -669,6 +669,68 @@ func pathsName(paths []*candidatePath) string {
 	return strings.Join(names, ",")
 }
 
+func (s *testPlanSuite) TestSimpleSky(c *C) {
+	defer testleak.AfterTest(c)()
+	tests := []struct {
+		sql    string
+		result string
+	}{
+		{
+			sql:    "select * from t where f > 1",
+			result: "PRIMARY_KEY,f,f_g",
+		},
+		{
+			sql:    "select * from t where a > 1 order by f",
+			result: "PRIMARY_KEY,f,f_g",
+		},
+	}
+	ctx := context.TODO()
+	for i, tt := range tests {
+		comment := Commentf("case:%v sql:%s", i, tt.sql)
+		stmt, err := s.ParseOneStmt(tt.sql, "", "")
+		c.Assert(err, IsNil, comment)
+		Preprocess(s.ctx, stmt, s.is)
+		builder := NewPlanBuilder(MockContext(), s.is)
+		p, err := builder.Build(ctx, stmt)
+		if err != nil {
+			c.Assert(err.Error(), Equals, tt.result, comment)
+			continue
+		}
+		c.Assert(err, IsNil, comment)
+		p, err = logicalOptimize(ctx, builder.optFlag, p.(LogicalPlan))
+		c.Assert(err, IsNil, comment)
+		lp := p.(LogicalPlan)
+		_, err = lp.recursiveDeriveStats()
+		c.Assert(err, IsNil, comment)
+		var ds *DataSource
+		var byItems []*ByItems
+		for ds == nil {
+			switch v := lp.(type) {
+			case *DataSource:
+				ds = v
+			case *LogicalSort:
+				byItems = v.ByItems
+				lp = lp.Children()[0]
+			case *LogicalProjection:
+				newItems := make([]*ByItems, 0, len(byItems))
+				for _, col := range byItems {
+					idx := v.schema.ColumnIndex(col.Expr.(*expression.Column))
+					switch expr := v.Exprs[idx].(type) {
+					case *expression.Column:
+						newItems = append(newItems, &ByItems{Expr: expr, Desc: col.Desc})
+					}
+				}
+				byItems = newItems
+				lp = lp.Children()[0]
+			default:
+				lp = lp.Children()[0]
+			}
+		}
+		paths := ds.skylinePruning(byItemsToProperty(byItems))
+		c.Assert(pathsName(paths), Equals, tt.result, comment)
+	}
+}
+
 func (s *testPlanSuite) TestSkylinePruning(c *C) {
 	defer testleak.AfterTest(c)()
 	tests := []struct {

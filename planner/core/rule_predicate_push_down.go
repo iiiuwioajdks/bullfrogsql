@@ -371,14 +371,18 @@ func (la *LogicalAggregation) PredicatePushDown(predicates []expression.Expressi
 		expres = append(expres, aggFunc.Args[0])
 	}
 	var condsToPush []expression.Expression
+	// 需要 group by 的 columns
 	groupByCols := expression.NewSchema(la.GetGroupByCols()...)
 	for _, e := range predicates {
 		// discussed in two types : Constant and ScalarFunction
 		switch e.(type) {
 		case *expression.Constant:
+			//fmt.Println("constant : ", e.String())
 			// 对于常数，比如 1=0， 这种应该在保留的同时下推
 			ret = append(ret, e)
 			condsToPush = append(condsToPush, e)
+		// ScalarFunction是返回一个值的函数
+		// 比如：select t1.a + t2.b from t1,t2; 其中 t1.a + t2.b 会build 成一个 scalarFunction 表达式
 		case *expression.ScalarFunction:
 			columns := expression.ExtractColumns(e)
 			ok := true
@@ -388,7 +392,11 @@ func (la *LogicalAggregation) PredicatePushDown(predicates []expression.Expressi
 					break
 				}
 			}
+			//fmt.Println("scalar:", e.String(), columns, groupByCols, ok)
 			if ok {
+				// 如果函数中的列是 group by 中需要的，就下推计算，否则就保留
+				// ColumnSubstitute将过滤器中的列替换为选择字段中的表达式。
+				// 例如：select * from (select b as a from t) k where a < 10 => select * from (select b as a from t where b < 10) k。
 				newFunc := expression.ColumnSubstitute(e, la.schema, expres)
 				condsToPush = append(condsToPush, newFunc)
 			} else {

@@ -210,10 +210,102 @@ type candidatePath struct {
 // (3): does it require a double scan.
 // If `x` is not worse than `y` at all factors,
 // and there exists one factor that `x` is better than `y`, then `x` is better than `y`.
+
+// compareCandidates是skyline pruning的核心。它从三个方面对两条候选路径进行比较:
+// (1): 在访问条件中出现的列的集合。
+// (2): 是否符合物理属性
+// (3): 是否需要双重扫描。
+// 如果`x`在所有因子上都不比`y`差，并且存在一个因素`x`比`y`好，那么`x`就比`y`好。
 func compareCandidates(lhs, rhs *candidatePath) int {
 	// TODO: implement the content according to the header comment.
+	// (1) 在访问条件中出现的列的集合是否是子集关系
+	accessRes, comparable1 := CompareCol2Len(lhs.columnSet, rhs.columnSet)
+	if !comparable1 {
+		return 0
+	}
+	// (2) 是否符合物理属性
+	matchRes := compareBool(lhs.isMatchProp, rhs.isMatchProp)
+	// (3) 是否需要双重扫描
+	// 如果都是 单扫 或 双扫 则为 0
+	// 如果 lhs 是双扫， rhs是单扫，则为 -1
+	// 如果 lhs 是单扫， rhs是双扫，则为 1
+	scanRes := compareBool(lhs.isSingleScan, rhs.isSingleScan)
+	//var scanRes int
+	// lhs.isSingleScan == rhs.isSingleScan == false
+	//if res == 0 && !lhs.isSingleScan{
+	//	scanRes = accessRes
+	//} else {
+	//	scanRes = res
+	//}
+	sum := accessRes + matchRes + scanRes
+	//fmt.Println(lhs.columnSet.String(), rhs.columnSet.String(),accessRes,matchRes, scanRes,sum)
+	// lhs 至少有一个因子优于 rhs，说明 lhs 比 rhs 更好，在这个函数调用中属于 lhs 不需要被裁剪
+	if accessRes >= 0 && matchRes >= 0 && scanRes >= 0 && sum > 0 {
+		return 1
+	}
+	// rhs 至少有一个因子优于 lhs，说明 rhs 比 lhs 更好，在这个函数调用中属于 lhs 需要被裁剪
+	if accessRes <= 0 && matchRes <= 0 && scanRes <= 0 && sum < 0 {
+		return -1
+	}
+	// 否则说明这两个是等价的
 	return 0
 }
+
+//func compareIndexBack(lhs *candidatePath, rhs *candidatePath) (int, bool) {
+//	res := compareBool(lhs.isSingleScan, rhs.isSingleScan)
+//	if res == 0 && !lhs.isSingleScan {
+//		return CompareCol2Len(lhs.path.IdxColLens, rhs.path.IdxColLens)
+//	}
+//}
+
+func compareBool(l bool, r bool) int {
+	if l == r {
+		return 0
+	}
+	if !l {
+		return -1
+	}
+	return 1
+}
+
+// CompareCol2Len will compare the two Col2Len maps. The last return value is used to indicate whether they are comparable.
+// When the second return value is true, the first return value:
+// (1) -1 means that c1 is worse than c2;
+// (2) 0 means that c1 equals to c2;
+// (3) 1 means that c1 is better than c2;
+func CompareCol2Len(c1, c2 *intsets.Sparse) (int, bool) {
+	l1, l2 := c1.Len(), c2.Len()
+	if l1 > l2 {
+		if dominate(c1, c2) {
+			return 1, true
+		}
+		return 0, false
+	}
+	if l1 < l2 {
+		if dominate(c2, c1) {
+			return -1, true
+		}
+		return 0, false
+	}
+
+	if dominate(c1, c2) {
+		return 0, true
+	}
+	return 0, false
+}
+
+// dominate return true if each column of c2 exists in c1 and c2's column length is no longer than c1's column length.
+func dominate(c1, c2 *intsets.Sparse) bool {
+	if c2.Len() > c1.Len() {
+		return false
+	}
+	if c2.SubsetOf(c1) {
+		return true
+	}
+	return false
+}
+
+// dominate return true if each column of c2 exists in c1 and c2's column length is no longer than c1's column length.
 
 func (ds *DataSource) getTableCandidate(path *util.AccessPath, prop *property.PhysicalProperty) *candidatePath {
 	candidate := &candidatePath{path: path}
@@ -248,6 +340,8 @@ func (ds *DataSource) getIndexCandidate(path *util.AccessPath, prop *property.Ph
 
 // skylinePruning prunes access paths according to different factors. An access path can be pruned only if
 // there exists a path that is not worse than it at all factors and there is at least one better factor.
+// skylinePruning根据不同的因素修剪访问路径。
+// 只有存在一条在所有因素上都不比它差的路径并且至少有一个更好的因素时，才能修剪访问路径。
 func (ds *DataSource) skylinePruning(prop *property.PhysicalProperty) []*candidatePath {
 	candidates := make([]*candidatePath, 0, 4)
 	for _, path := range ds.possibleAccessPaths {
@@ -274,7 +368,21 @@ func (ds *DataSource) skylinePruning(prop *property.PhysicalProperty) []*candida
 		// TODO: Here is the pruning phase. Will prune the access path which is must worse than others.
 		//       You'll need to implement the content in function `compareCandidates`.
 		//       And use it to prune unnecessary paths.
-		candidates = append(candidates, currentCandidate)
+		pruned := false
+		for i := len(candidates) - 1; i >= 0; i-- {
+			res := compareCandidates(candidates[i], currentCandidate)
+			if res == 1 {
+				// 因为每一个 append 进去的都是被裁剪检查过的
+				// 如果等于一说明这个已经不能再裁剪任何一个了，所以直接 break
+				pruned = true
+				break
+			} else if res == -1 {
+				candidates = append(candidates[:i], candidates[i+1:]...)
+			}
+		}
+		if !pruned {
+			candidates = append(candidates, currentCandidate)
+		}
 	}
 	return candidates
 }
