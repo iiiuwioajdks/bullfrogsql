@@ -217,6 +217,7 @@ type candidatePath struct {
 // (3): 是否需要双重扫描。
 // 如果`x`在所有因子上都不比`y`差，并且存在一个因素`x`比`y`好，那么`x`就比`y`好。
 func compareCandidates(lhs, rhs *candidatePath) int {
+	// Project 4-2: your code here
 	// TODO: implement the content according to the header comment.
 	// (1) 在访问条件中出现的列的集合是否是子集关系
 	accessRes, comparable1 := CompareCol2Len(lhs.columnSet, rhs.columnSet)
@@ -365,6 +366,8 @@ func (ds *DataSource) skylinePruning(prop *property.PhysicalProperty) []*candida
 				continue
 			}
 		}
+
+		// Project 4-2: your code here
 		// TODO: Here is the pruning phase. Will prune the access path which is must worse than others.
 		//       You'll need to implement the content in function `compareCandidates`.
 		//       And use it to prune unnecessary paths.
@@ -578,6 +581,7 @@ func (is *PhysicalIndexScan) initSchema(idx *model.IndexInfo, idxExprCols []*exp
 		if idxExprCols[i] != nil {
 			indexCols = append(indexCols, idxExprCols[i])
 		} else {
+			// This is not part of project4-2, you could ignore the TODO below.
 			// TODO: try to reuse the col generated when building the DataSource.
 			indexCols = append(indexCols, &expression.Column{
 				ID:       is.Table.Columns[idx.Columns[i].Offset].ID,
